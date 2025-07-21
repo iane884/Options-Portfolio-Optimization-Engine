@@ -167,7 +167,3 @@ Uses a delta-gamma-normal approximation:
 - Flat margin rate (not Greeks-based)
 - No transaction costs
 - Static optimization (no rebalancing)
-
-## License
-
-This project is provided as-is for educational and research purposes.
