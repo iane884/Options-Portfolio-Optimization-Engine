@@ -1,74 +1,64 @@
 import numpy as np
 from scipy.stats import norm
-from typing import List
+from typing import List, Tuple
 from models import Portfolio, OptionContract, Position
 
 def calculate_portfolio_pnl_stats(
     portfolio: Portfolio,
     underlying_volatility: float = 0.20,
     time_horizon_days: int = 1
-) -> tuple[float, float]:
+) -> Tuple[float, float]:
     """
-    Calculate portfolio P&L mean and standard deviation using delta-gamma-normal approximation.
-    
-    For simplicity, we approximate portfolio P&L standard deviation using:
-    1. Delta exposure to underlying moves
-    2. Individual position risk contribution
-    
-    Args:
-        portfolio: Portfolio to analyze
-        underlying_volatility: Annualized volatility of underlying asset
-        time_horizon_days: Time horizon for risk calculation in days
-    
-    Returns:
-        Tuple of (mean_pnl, std_pnl)
+    Calculate portfolio P&L mean and standard deviation using a
+    delta-gamma-vega approximation.
+
+    Improvements over the previous version
+    --------------------------------------
+    1.  Includes gamma-risk (second-order price moves).
+    2.  Uses contract_multiplier so dollar risks are correctly scaled.
+    3.  Enforces a small volatility floor to avoid division by ~0 which
+        produced crazy Sharpe ratios.
     """
     if not portfolio.positions:
         return 0.0, 0.0
-    
-    # Expected P&L is the sum of expected returns from all positions
+
     mean_pnl = portfolio.expected_return
-    
-    # Calculate portfolio standard deviation
-    # For delta-gamma approximation, dominant risk comes from:
-    # 1. Delta exposure to underlying price moves
-    # 2. Individual position volatilities (simplified)
-    
-    # Get portfolio delta
-    portfolio_delta = portfolio.total_delta
-    
-    # Assume underlying price for risk calculation
-    underlying_price = portfolio.positions[0].contract.underlying_price  # Assume all same underlying
-    
-    # Daily volatility
-    daily_vol = underlying_volatility / np.sqrt(252)  # Convert annualized to daily
-    
-    # Risk from delta exposure (linear approximation)
-    # Delta risk = |portfolio_delta| * underlying_price * daily_volatility
-    delta_risk = abs(portfolio_delta) * underlying_price * daily_vol
-    
-    # Risk from individual positions (simplified approach)
-    # For each position, estimate daily P&L volatility
-    position_risks = []
-    for position in portfolio.positions:
-        # Risk per contract based on vega and underlying moves
-        # Simplified: use vega as a proxy for volatility sensitivity
-        contract_risk = abs(position.contract.vega) * underlying_volatility / 100  # Vega is per 1% vol change
-        position_risk = abs(position.quantity) * contract_risk
-        position_risks.append(position_risk)
-    
-    # Total position risk (assuming uncorrelated for simplicity)
-    total_position_risk = np.sqrt(sum(risk**2 for risk in position_risks))
-    
-    # Combine delta risk and position risk
-    # In reality, these are correlated, but for MVP we'll add them in quadrature
-    total_risk = np.sqrt(delta_risk**2 + total_position_risk**2)
-    
-    # Scale by time horizon if different from 1 day
+
+    # Annual->daily σ of the underlying
+    daily_vol = underlying_volatility / np.sqrt(252)
+
+    risk_sq_sum = 0.0
+    for pos in portfolio.positions:
+        q            = abs(pos.quantity)
+        contract     = pos.contract
+        mult         = contract.contract_multiplier
+        spot         = contract.underlying_price
+
+        # 1) Delta risk  (linear P&L from move dS)
+        delta_risk   = q * abs(contract.delta)  * spot * daily_vol
+
+        # 2) Gamma risk (convexity P&L from move dS)
+        gamma_risk   = q * 0.5 * abs(contract.gamma) * (spot * daily_vol)**2
+
+        # 3) Vega risk  (vol-change of 1 vol-point = 1 %)
+        # Note: contract.vega is already per 1% vol change, so use vol change of ~5% for risk
+        vega_risk    = q * abs(contract.vega) * 0.05  # 5% volatility change for risk
+
+        # Combine for *that* position (uncorrelated assumption)
+        position_risk = np.sqrt(delta_risk**2 + gamma_risk**2 + vega_risk**2) * mult
+        risk_sq_sum  += position_risk**2
+
+    std_pnl = np.sqrt(risk_sq_sum)
+
+    # Volatility floor – prevents divide-by-(almost)-zero
+    min_vol = 100.0          # $100 per day ≈ 0.02% of a $500 k book
+    std_pnl = max(std_pnl, min_vol)
+
+    # Scale for different horizons
     if time_horizon_days != 1:
-        total_risk *= np.sqrt(time_horizon_days)
-    
-    return mean_pnl, total_risk
+        std_pnl *= np.sqrt(time_horizon_days)
+
+    return mean_pnl, std_pnl
 
 def calculate_cvar_normal(
     mean: float,
@@ -76,52 +66,34 @@ def calculate_cvar_normal(
     confidence_level: float = 0.95
 ) -> float:
     """
-    Calculate Conditional Value at Risk (CVaR) for a normal distribution.
-    
-    CVaR is the expected loss in the worst (1-confidence_level) tail of the distribution.
-    
-    Args:
-        mean: Mean of P&L distribution
-        std: Standard deviation of P&L distribution  
-        confidence_level: Confidence level (e.g., 0.95 for 95%)
-    
-    Returns:
-        CVaR value (negative means loss)
+    CVaR (expected loss in the worst (1-α) tail) for a normal
+    distribution.  Returns a *negative* number for loss.
     """
     if std <= 0:
-        return mean
-    
-    # Calculate the quantile for the tail
-    alpha = 1 - confidence_level  # e.g., 0.05 for 95% confidence
-    z_alpha = norm.ppf(alpha)  # Standard normal quantile
-    
-    # Calculate CVaR using the closed-form formula for normal distribution
-    phi_z = norm.pdf(z_alpha)  # Standard normal density
-    cvar = mean - std * phi_z / alpha
-    
-    return cvar
+        return 0.0
+
+    alpha   = 1 - confidence_level          # e.g. 0.05
+    z_alpha = norm.ppf(confidence_level)    # +1.645 for 95 %
+    phi_z   = norm.pdf(z_alpha)
+
+    var  = mean - std * z_alpha             # 95 % VaR
+    cvar = mean - std * phi_z / alpha       # 95 % CVaR
+
+    # We are interested in loss → negative value (or 0 if profitable)
+    return min(cvar, 0.0)
 
 def calculate_var_normal(
     mean: float,
     std: float,
     confidence_level: float = 0.95
 ) -> float:
-    """
-    Calculate Value at Risk (VaR) for a normal distribution.
-    
-    VaR is the loss threshold that will not be exceeded with the given confidence level.
-    
-    Returns:
-        VaR value (negative means loss)
-    """
+    """Same sign convention as CVaR (negative = loss)."""
     if std <= 0:
-        return mean
-    
-    alpha = 1 - confidence_level
-    z_alpha = norm.ppf(alpha)
-    var = mean + std * z_alpha  # Note: z_alpha is negative for typical confidence levels
-    
-    return var
+        return 0.0
+
+    z_alpha = norm.ppf(confidence_level)    # +1.645
+    var     = mean - std * z_alpha
+    return min(var, 0.0)
 
 def calculate_portfolio_risk_metrics(
     portfolio: Portfolio,
@@ -129,35 +101,30 @@ def calculate_portfolio_risk_metrics(
     confidence_level: float = 0.95,
     time_horizon_days: int = 1
 ) -> dict:
-    """
-    Calculate comprehensive risk metrics for a portfolio.
-    
-    Returns:
-        Dictionary with risk metrics including CVaR, VaR, volatility, etc.
-    """
-    # Calculate P&L statistics
+    # --- P&L statistics --------------------------------------------------
     mean_pnl, std_pnl = calculate_portfolio_pnl_stats(
         portfolio, underlying_volatility, time_horizon_days
     )
-    
-    # Calculate CVaR and VaR
+
+    # --- Tail-risk -------------------------------------------------------
     cvar = calculate_cvar_normal(mean_pnl, std_pnl, confidence_level)
-    var = calculate_var_normal(mean_pnl, std_pnl, confidence_level)
-    
-    # Calculate additional metrics
-    sharpe_ratio = mean_pnl / std_pnl if std_pnl > 0 else 0
-    
+    var  = calculate_var_normal (mean_pnl, std_pnl, confidence_level)
+
+    # --- Sharpe ratio ----------------------------------------------------
+    sharpe_ratio = mean_pnl / std_pnl
+    sharpe_ratio = min(sharpe_ratio, 5.0)  # cap at a realistic level
+
     return {
-        'expected_pnl': mean_pnl,
-        'pnl_volatility': std_pnl,
-        'cvar': cvar,
-        'var': var,
-        'sharpe_ratio': sharpe_ratio,
-        'confidence_level': confidence_level,
+        'expected_pnl'     : mean_pnl,
+        'pnl_volatility'   : std_pnl,
+        'cvar'             : cvar,
+        'var'              : var,
+        'sharpe_ratio'     : sharpe_ratio,
+        'confidence_level' : confidence_level,
         'time_horizon_days': time_horizon_days,
-        'portfolio_delta': portfolio.total_delta,
-        'portfolio_gamma': portfolio.total_gamma,
-        'portfolio_vega': portfolio.total_vega
+        'portfolio_delta'  : portfolio.total_delta,
+        'portfolio_gamma'  : portfolio.total_gamma,
+        'portfolio_vega'   : portfolio.total_vega,
     }
 
 def check_cvar_constraint(
@@ -165,7 +132,7 @@ def check_cvar_constraint(
     cvar_limit: float,
     underlying_volatility: float = 0.20,
     confidence_level: float = 0.95
-) -> tuple[bool, float]:
+) -> Tuple[bool, float]:
     """
     Check if portfolio satisfies CVaR constraint.
     

@@ -73,7 +73,8 @@ class Position:
         """Expected P&L from this position."""
         if self.contract.expected_return is None:
             return 0.0
-        return self.quantity * self.contract.expected_return * self.contract.contract_multiplier
+        # expected_return already includes contract_multiplier from pricing.py
+        return self.quantity * self.contract.expected_return
 
 @dataclass
 class Portfolio:

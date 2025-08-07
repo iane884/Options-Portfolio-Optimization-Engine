@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from datetime import date, timedelta
-from typing import List
+from typing import List, Tuple
 from models import OptionContract
 from pricing import calculate_greeks, time_to_expiry_years
 
@@ -158,7 +158,7 @@ def generate_options_with_mispricing(
     
     return mispriced_contracts
 
-def create_sample_portfolio_scenario(scenario: str = "balanced") -> tuple[List[OptionContract], str]:
+def create_sample_portfolio_scenario(scenario: str = "balanced") -> Tuple[List[OptionContract], str]:
     """
     Create predefined scenarios for testing the optimizer.
     

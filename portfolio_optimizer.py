@@ -301,13 +301,28 @@ class PortfolioOptimizer:
             for vol_change in volatility_changes:
                 new_vol = self.underlying_volatility * (1 + vol_change)
                 
-                # Calculate approximate P&L using delta approximation
-                price_move = new_price - current_price
-                delta_pnl = portfolio.total_delta * price_move * 100  # 100 shares per contract
-                
-                # Add expected return
-                total_pnl = delta_pnl + portfolio.expected_return
-                
+                # Second-order P&L approximation: Δ + ½Γ + Vega
+                price_move = new_price - current_price  # ΔS
+                vol_move   = new_vol   - self.underlying_volatility  # Δσ (absolute)
+
+                delta_pnl = 0.0
+                gamma_pnl = 0.0
+                vega_pnl  = 0.0
+
+                for pos in portfolio.positions:
+                    mult   = pos.contract.contract_multiplier
+                    q      = pos.quantity
+                    Δ      = pos.contract.delta
+                    Γ      = pos.contract.gamma
+                    V      = pos.contract.vega  # per 1 vol-point (1.00 = 100%)
+
+                    delta_pnl += q * Δ * price_move * mult
+                    gamma_pnl += 0.5 * q * Γ * (price_move ** 2) * mult
+                    # Vega is per 1% vol change → vol_move (0.05 = 5%) * 100 = 5 vol-points  
+                    vega_pnl  += q * V * (vol_move * 100) * mult
+
+                total_pnl = portfolio.expected_return + delta_pnl + gamma_pnl + vega_pnl
+
                 scenarios.append({
                     'Price Change %': price_change * 100,
                     'New Price': new_price,
@@ -315,6 +330,8 @@ class PortfolioOptimizer:
                     'New Volatility': new_vol,
                     'Estimated P&L': total_pnl,
                     'Delta P&L': delta_pnl,
+                    'Gamma P&L': gamma_pnl,
+                    'Vega P&L': vega_pnl,
                     'Expected Return': portfolio.expected_return
                 })
         

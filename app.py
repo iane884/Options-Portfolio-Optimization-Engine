@@ -248,7 +248,8 @@ def main():
                             st.metric("Short Positions", short_positions)
                         with col3:
                             net_premium = summary['portfolio_metrics']['Net Premium']
-                            st.metric("Net Premium", f"${net_premium:,.0f}")
+                            premium_label = "Net Credit" if net_premium < 0 else "Net Debit"
+                            st.metric(premium_label, f"${abs(net_premium):,.0f}")
                     else:
                         st.info("No positions in optimized portfolio")
                 

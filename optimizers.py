@@ -1,6 +1,6 @@
 import numpy as np
 import cvxpy as cp
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from models import OptionContract, Portfolio, Position, OptimizationConstraints, OptimizationResult
 from pricing import calculate_expected_returns
 from risk_calculator import calculate_portfolio_risk_metrics, check_cvar_constraint
@@ -49,8 +49,8 @@ class MILPOptimizer:
         gammas = np.array([c.gamma for c in contracts])
         premiums = np.array([c.market_premium * c.contract_multiplier for c in contracts])
         
-        # Objective: maximize expected return
-        objective = cp.Maximize(expected_returns @ q * contracts[0].contract_multiplier)
+        # Objective: maximize expected return (already includes contract multiplier in expected_returns)
+        objective = cp.Maximize(expected_returns @ q)
         
         # Constraints
         constraints = []
@@ -152,7 +152,7 @@ class MILPOptimizer:
         
         return Portfolio(positions=positions)
     
-    def _check_constraints(self, portfolio: Portfolio, risk_metrics: dict) -> tuple[bool, dict]:
+    def _check_constraints(self, portfolio: Portfolio, risk_metrics: dict) -> Tuple[bool, dict]:
         """Check if solution satisfies all constraints."""
         violations = {
             'delta_violation': 0.0,
@@ -396,7 +396,7 @@ class GreedyOptimizer:
         
         return improvement_made
     
-    def _check_constraints(self, portfolio: Portfolio, risk_metrics: dict) -> tuple[bool, dict]:
+    def _check_constraints(self, portfolio: Portfolio, risk_metrics: dict) -> Tuple[bool, dict]:
         """Check constraints (same logic as MILP optimizer)."""
         optimizer = MILPOptimizer(self.constraints)
         return optimizer._check_constraints(portfolio, risk_metrics)

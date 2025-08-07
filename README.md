@@ -1,169 +1,72 @@
 # Options Portfolio Optimizer
 
-A portfolio optimization system that maximizes expected return while maintaining delta and gamma neutrality within user-defined risk constraints.
+A tool that finds the best options trades to maximize profit while keeping your portfolio balanced and within your risk limits.
 
-## Overview
+## What it does
 
-This tool constructs optimal options portfolios by maximizing expected return using premium vs. theoretical fair value analysis while maintaining market neutrality through delta and gamma constraints, managing risk via CVaR limits, and respecting capital and margin constraints.
+- Finds overpriced/underpriced options using Black-Scholes pricing
+- Builds a portfolio that's neutral to market moves (delta/gamma balanced)
+- Respects your capital budget and risk limits
+- Shows you exactly what to buy/sell and how much money you can expect to make
 
-The system focuses on a single underlying's full options chain, making it suitable for hedging strategies and market-neutral trading approaches.
+## Quick Setup
 
-## Features
+1. **Install Python dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-**Optimization Algorithms**
-- MILP (Mixed Integer Linear Programming): Exact solutions using CVXPY
-- Greedy Heuristic: Fast approximate solutions for large option chains
-- Comparative Analysis: Run both methods and select the best result
+2. **Test that everything works:**
+   ```bash
+   python test_optimizer.py
+   ```
 
-**Risk Management**
-- Delta-Gamma Neutrality: Configurable tolerance bands (default ±0.5 delta, ±0.2 gamma)
-- CVaR Risk Limiting: Normal approximation for tail risk assessment
-- Capital Controls: Budget limits and margin requirements
-- Scenario Analysis: P&L sensitivity to price and volatility changes
+3. **Launch the web interface:**
+   ```bash
+   streamlit run app.py
+   ```
+   Then open your browser to `http://localhost:8501`
 
-**Expected Return Model**
-- Theoretical Pricing: Black-Scholes fair value calculation
-- Mispricing Detection: Expected return = Market Premium - Theoretical Price
-- Volatility Risk Premium: Captures systematic option overpricing
+## How to use
 
-**User Interface**
-- Streamlit Web App: Interactive configuration and visualization
-- Multiple Data Sources: Predefined scenarios, test chains
-- Export Capabilities: Portfolio compositions to CSV format
-
-## Installation
-
-1. Clone the repository and navigate to the project directory
-2. Install dependencies: `pip install -r requirements.txt`
-3. Test the installation: `python test_optimizer.py`
-
-## Usage
-
-**Command Line Testing**
-```bash
-python test_optimizer.py
-```
-
-**Web Interface**
-```bash
-streamlit run app.py
-```
-Open your browser to `http://localhost:8501`
-
-**Programmatic Usage**
-```python
-from portfolio_optimizer import PortfolioOptimizer
-from models import OptimizationConstraints
-
-# Initialize with custom constraints
-constraints = OptimizationConstraints(
-    delta_tolerance=0.5,      # ±0.5 delta neutrality
-    gamma_tolerance=0.2,      # ±0.2 gamma neutrality  
-    capital_budget=500_000,   # $500K capital limit
-    margin_cap=100_000,       # $100K margin limit
-    cvar_limit=-75_000        # Max $75K CVaR loss
-)
-
-optimizer = PortfolioOptimizer(constraints)
-
-# Load market data
-num_contracts, description = optimizer.load_contracts_from_scenario("balanced")
-
-# Run optimization
-result = optimizer.optimize(method="milp")
-
-# Analyze results
-summary = optimizer.get_portfolio_summary()
-print(f"Expected Return: ${summary['portfolio_metrics']['Expected Return']:,.0f}")
-print(f"Portfolio Delta: {summary['portfolio_metrics']['Portfolio Delta']:.3f}")
-```
-
-## Architecture
-
-**Core Components**
-- `models.py`: Data structures for options, portfolios, and constraints
-- `pricing.py`: Black-Scholes pricing and Greeks calculation  
-- `risk_calculator.py`: CVaR computation using normal approximation
-- `data_generator.py`: Mock options chain generation with realistic pricing
-- `optimizers.py`: MILP and greedy optimization algorithms
-- `portfolio_optimizer.py`: Main orchestrator class
-- `app.py`: Streamlit web interface
-
-**Optimization Problem**
-
-Objective: Maximize Σ(Expected Return × Quantity)
-
-Subject to:
-- Delta Neutrality: |Σ(Delta × Quantity)| ≤ δ_tolerance
-- Gamma Neutrality: |Σ(Gamma × Quantity)| ≤ γ_tolerance  
-- Capital Limit: Σ(Long Premium Costs) ≤ Capital Budget
-- Margin Limit: Σ(Short Contracts) × Margin/Contract ≤ Margin Cap
-- CVaR Constraint: Portfolio CVaR ≥ CVaR Limit
-- Position Bounds: Min ≤ Quantity ≤ Max (per contract)
-
-## Configuration
-
-**Default Constraints**
-- Delta Tolerance: ±0.5 (very low directional exposure)
-- Gamma Tolerance: ±0.2 (stable delta as underlying moves)
-- Capital Budget: $500,000
-- Margin Cap: $100,000  
-- Margin per Contract: $2,000 (flat rate approximation)
-- CVaR Limit: -$75,000 (95% confidence)
-
-**Market Scenarios**
-- Balanced: 20% volatility, moderate skew
-- High Vol: 35% volatility, increased skew  
-- Low Vol: 12% volatility, minimal skew
-- Skewed: Strong put volatility premium
+1. **Load data** - Choose a market scenario (balanced, high volatility, etc.)
+2. **Set your limits** - Capital budget, risk tolerance, delta/gamma limits
+3. **Run optimization** - Click "Run Optimization" to find the best trades
+4. **Review results** - See your expected profit, risk metrics, and specific trades
 
 ## Example Output
 
 ```
-Portfolio Optimization Results
-Expected Return: $15,250
-Portfolio Delta: 0.02
-Portfolio Gamma: -0.05
-Constraints Satisfied: Yes
+Expected Return: $50,342
+Portfolio Delta: -0.499 (neutral)
+Portfolio Gamma: 0.199 (stable)
+Sharpe Ratio: 1.327
 
 Positions:
-- Short SPY_450_C_240115: 5 contracts
-- Long SPY_445_P_240115: 3 contracts  
-- Short SPY_455_P_240215: 2 contracts
+- Short SPY_450_C_250906: 25 contracts
+- Long SPY_445_P_250906: 15 contracts
+- Short SPY_455_P_250906: 10 contracts
 
 Risk Metrics:
-- CVaR (95%): -$45,200
-- Portfolio Volatility: $28,500
-- Capital Used: $125,000
-- Margin Used: $35,000
+- CVaR: -$27,927 (max loss in worst case)
+- Capital Used: $365,453
+- Margin Used: $100,000
 ```
 
-## Technical Details
+## Configuration
 
-**Expected Return Calculation**
-The system calculates expected returns as the difference between market premiums and Black-Scholes theoretical prices:
+**Default Settings:**
+- Capital Budget: $500,000
+- Delta Tolerance: ±0.5 (very neutral)
+- Gamma Tolerance: ±0.2 (stable)
+- CVaR Limit: -$75,000 (risk limit)
+- Margin Cap: $100,000
 
-```
-Expected Return = Market Premium - BS_Price(S, K, T, r, σ_implied)
-```
+You can adjust these in the web interface sidebar.
 
-Positive values indicate overpriced options (profitable to short), while negative values suggest underpriced options (profitable to buy).
+## Files
 
-**CVaR Risk Model**
-Uses a delta-gamma-normal approximation:
-1. Portfolio P&L Mean: Σ(Expected Returns)
-2. Portfolio P&L Std: √(Delta Risk² + Position Risk²)  
-3. CVaR Calculation: μ - σ × φ(z_α)/α (closed-form normal)
-
-**Solver Selection**
-- MILP: Tries CPLEX → GUROBI → CBC → GLPK in order
-- Fallback: Uses default CVXPY solver if commercial solvers unavailable
-- Fractional Support: Optional relaxation of integer constraints
-
-## Limitations
-
-- Single underlying asset only
-- Normal approximation for risk (simplified)
-- Flat margin rate (not Greeks-based)
-- No transaction costs
-- Static optimization (no rebalancing)
+- `app.py` - Web interface
+- `portfolio_optimizer.py` - Main optimization logic
+- `test_optimizer.py` - Test script
+- `requirements.txt` - Python dependencies

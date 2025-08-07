@@ -145,8 +145,9 @@ def calculate_expected_returns(
             option_type=contract.option_type
         )
         
-        # Calculate expected return (positive means option is overpriced, good to sell)
-        expected_return = contract.market_premium - theoretical_price
+        # Calculate expected return per contract (positive means option is overpriced, good to sell)
+        # This already accounts for per-contract expected return
+        expected_return = (contract.market_premium - theoretical_price) * contract.contract_multiplier
         
         # Create updated contract
         updated_contract = OptionContract(
